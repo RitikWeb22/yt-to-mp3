@@ -51,7 +51,7 @@ const METADATA_OPTIONS = {
     dumpSingleJson: true,
     noWarnings: true,
     skipDownload: true,
-    extractor_args: 'youtube:player_client=android',
+    extractorArgs: 'youtube:player_client=android',
 };
 
 // ─── In-memory metadata cache (TTL: 10 minutes) ───────────────────────────────
@@ -131,7 +131,7 @@ async function downloadController(req, res) {
                 noWarnings: true,
                 noCheckCertificates: true,
                 preferFreeFormats: true,
-                extractor_args: 'youtube:player_client=android',
+                extractorArgs: 'youtube:player_client=android',
             },
             { stdio: ['ignore', 'pipe', 'pipe'] },
         );

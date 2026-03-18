@@ -1,8 +1,8 @@
 const ytDlp = require('yt-dlp-exec');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
-const sanitizeFilename = require('sanitize-filename');   
-const rateLimit = require('express-rate-limit');          
+const sanitizeFilename = require('sanitize-filename');   // npm i sanitize-filename
+const rateLimit = require('express-rate-limit');          // npm i express-rate-limit
 const DownloadHistory = require('../models/download.history.model');
 
 if (ffmpegPath) {
@@ -12,7 +12,7 @@ if (ffmpegPath) {
 // ─── Rate limiter (attach in your router or app.js) ──────────────────────────
 const downloadLimiter = rateLimit({
     windowMs: 60 * 1000,   // 1 minute
-    max: 15,               // max 15 requests per IP per minute
+    max: 10,               // max 10 requests per IP per minute
     message: { error: 'Too many requests. Please try again later.' },
 });
 
@@ -51,6 +51,7 @@ const METADATA_OPTIONS = {
     dumpSingleJson: true,
     noWarnings: true,
     skipDownload: true,
+    extractor_args: 'youtube:player_client=android',
 };
 
 // ─── In-memory metadata cache (TTL: 10 minutes) ───────────────────────────────
@@ -130,6 +131,7 @@ async function downloadController(req, res) {
                 noWarnings: true,
                 noCheckCertificates: true,
                 preferFreeFormats: true,
+                extractor_args: 'youtube:player_client=android',
             },
             { stdio: ['ignore', 'pipe', 'pipe'] },
         );
@@ -227,5 +229,5 @@ module.exports = {
     infoController,
     downloadController,
     historyController,
-    downloadLimiter,   
+    downloadLimiter,   // export so you can attach it in your router
 };

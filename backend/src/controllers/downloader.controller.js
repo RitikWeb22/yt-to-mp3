@@ -12,19 +12,60 @@ if (ffmpegPath) {
 // ─── Rate limiter (attach in your router or app.js) ──────────────────────────
 const downloadLimiter = rateLimit({
     windowMs: 60 * 1000,   // 1 minute
-    max: 10,               // max 10 requests per IP per minute
+    max: 15,               // max 15 requests per IP per minute
     message: { error: 'Too many requests. Please try again later.' },
 });
 
-// ─── Allowed YouTube URL pattern ──────────────────────────────────────────────
-const YOUTUBE_REGEX = /^https?:\/\/(www\.)?(youtube\.com\/(watch\?v=|shorts\/)|youtu\.be\/)[\w-]{11}/;
+// ─── YouTube URL normalization/validation ─────────────────────────────────────
+const YOUTUBE_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
+const YOUTUBE_HOSTS = new Set([
+    'youtube.com',
+    'www.youtube.com',
+    'm.youtube.com',
+    'youtu.be',
+    'www.youtu.be',
+]);
 
-function isValidYouTubeURL(url) {
+function extractYouTubeVideoId(rawUrl) {
     try {
-        return YOUTUBE_REGEX.test(url);
+        const parsed = new URL(rawUrl);
+        const host = parsed.hostname.toLowerCase();
+
+        if (!YOUTUBE_HOSTS.has(host)) {
+            return null;
+        }
+
+        if (host.endsWith('youtu.be')) {
+            const id = parsed.pathname.replace(/^\//, '').split('/')[0];
+            return YOUTUBE_ID_REGEX.test(id) ? id : null;
+        }
+
+        const pathname = parsed.pathname;
+        if (pathname === '/watch') {
+            const id = parsed.searchParams.get('v');
+            return YOUTUBE_ID_REGEX.test(id || '') ? id : null;
+        }
+
+        if (pathname.startsWith('/shorts/')) {
+            const id = pathname.split('/')[2];
+            return YOUTUBE_ID_REGEX.test(id || '') ? id : null;
+        }
+
+        if (pathname.startsWith('/embed/')) {
+            const id = pathname.split('/')[2];
+            return YOUTUBE_ID_REGEX.test(id || '') ? id : null;
+        }
+
+        return null;
     } catch {
-        return false;
+        return null;
     }
+}
+
+function normalizeYouTubeURL(rawUrl) {
+    const videoId = extractYouTubeVideoId(rawUrl);
+    if (!videoId) return null;
+    return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -51,7 +92,7 @@ const METADATA_OPTIONS = {
     dumpSingleJson: true,
     noWarnings: true,
     skipDownload: true,
-    extractorArgs: 'youtube:player_client=android',
+    noCheckCertificates: true,
 };
 
 // ─── In-memory metadata cache (TTL: 10 minutes) ───────────────────────────────
@@ -70,12 +111,13 @@ async function fetchVideoInfo(videoURL) {
 
 // ─── Controllers ──────────────────────────────────────────────────────────────
 async function infoController(req, res) {
-    const videoURL = req.query.url;
+    const inputURL = req.query.url;
 
-    if (!videoURL) {
+    if (!inputURL) {
         return res.status(400).json({ error: 'URL is required' });
     }
-    if (!isValidYouTubeURL(videoURL)) {
+    const videoURL = normalizeYouTubeURL(inputURL);
+    if (!videoURL) {
         return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
@@ -93,13 +135,14 @@ async function infoController(req, res) {
 }
 
 async function downloadController(req, res) {
-    const videoURL = req.query.url;
+    const inputURL = req.query.url;
     const bitrate = parseBitrate(req.query.quality);
 
-    if (!videoURL) {
+    if (!inputURL) {
         return res.status(400).json({ error: 'URL is required' });
     }
-    if (!isValidYouTubeURL(videoURL)) {
+    const videoURL = normalizeYouTubeURL(inputURL);
+    if (!videoURL) {
         return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
@@ -131,7 +174,6 @@ async function downloadController(req, res) {
                 noWarnings: true,
                 noCheckCertificates: true,
                 preferFreeFormats: true,
-                extractorArgs: 'youtube:player_client=android',
             },
             { stdio: ['ignore', 'pipe', 'pipe'] },
         );

@@ -314,5 +314,5 @@ module.exports = {
     infoController,
     downloadController,
     historyController,
-    downloadLimiter,   // export so you can attach it in your router
+    downloadLimiter,
 };

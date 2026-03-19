@@ -1,6 +1,8 @@
 const ytDlp = require('yt-dlp-exec');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
+const fs = require('fs');
+const path = require('path');
 const sanitizeFilename = require('sanitize-filename');   // npm i sanitize-filename
 const rateLimit = require('express-rate-limit');          // npm i express-rate-limit
 const DownloadHistory = require('../models/download.history.model');
@@ -141,6 +143,37 @@ const METADATA_FALLBACK_OPTIONS = [
 // ─── In-memory metadata cache (TTL: 10 minutes) ───────────────────────────────
 const infoCache = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
+const COOKIES_FILE_PATH = path.join(__dirname, '../../cookies.txt');
+
+function buildYtDlpRuntimeOptions(options = {}) {
+    const merged = {
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        retries: 2,
+        extractorRetries: 2,
+        ...options,
+    };
+
+    if (fs.existsSync(COOKIES_FILE_PATH)) {
+        merged.cookies = COOKIES_FILE_PATH;
+    }
+
+    return merged;
+}
+
+async function fetchOEmbedInfo(videoURL) {
+    const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(videoURL)}&format=json`;
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+        throw new Error(`oEmbed failed with status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    return {
+        title: payload.title,
+        thumbnail: payload.thumbnail_url,
+        duration: null,
+    };
+}
 
 function classifyYtDlpError(err) {
     const message = `${err?.message || ''}`.toLowerCase();
@@ -199,7 +232,7 @@ async function fetchVideoInfo(videoURL) {
 
     for (let i = 0; i < attempts.length; i++) {
         try {
-            const options = attempts[i];
+            const options = buildYtDlpRuntimeOptions(attempts[i]);
             console.log(`[yt-dlp] Attempt ${i + 1}/${attempts.length} for ${videoURL}`);
             const data = await ytDlp(videoURL, options);
             console.log(`[yt-dlp] Success on attempt ${i + 1}: ${data.title}`);
@@ -239,6 +272,17 @@ async function infoController(req, res) {
     } catch (err) {
         console.error(`[/api/info] Error for ${videoURL}:`, err.message);
         const mapped = classifyYtDlpError(err);
+
+        if (mapped.status === 403 || mapped.status === 429 || mapped.status === 502) {
+            try {
+                const fallback = await fetchOEmbedInfo(videoURL);
+                console.log(`[/api/info] oEmbed fallback success: ${fallback.title}`);
+                return res.json(fallback);
+            } catch (oembedErr) {
+                console.error(`[/api/info] oEmbed fallback failed: ${oembedErr.message}`);
+            }
+        }
+
         res.status(mapped.status).json({ error: mapped.error });
     }
 }
@@ -257,10 +301,18 @@ async function downloadController(req, res) {
 
     try {
         console.log(`[/api/download] Starting for: ${videoURL} (${bitrate}kbps)`);
-        // Fetch metadata (served from cache if /info was already called)
-        const info = await fetchVideoInfo(videoURL);
-        console.log(`[/api/download] Metadata fetched: ${info.title}`);
-        const { title, thumbnail } = info;
+        let title = `audio-${extractYouTubeVideoId(videoURL) || Date.now()}`;
+        let thumbnail = '';
+
+        // Metadata failure should not always block download.
+        try {
+            const info = await fetchVideoInfo(videoURL);
+            console.log(`[/api/download] Metadata fetched: ${info.title}`);
+            title = info.title || title;
+            thumbnail = info.thumbnail || thumbnail;
+        } catch (metaErr) {
+            console.warn(`[/api/download] Metadata unavailable, proceeding with fallback title: ${metaErr.message}`);
+        }
 
         // Fire DB save in parallel — don't block streaming on it
         const historySave = DownloadHistory.create({
@@ -279,13 +331,13 @@ async function downloadController(req, res) {
         // Start streaming immediately without waiting for DB
         const subprocess = ytDlp.exec(
             videoURL,
-            {
+            buildYtDlpRuntimeOptions({
                 format: 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio',
                 output: '-',
                 noWarnings: true,
                 noCheckCertificates: true,
                 preferFreeFormats: true,
-            },
+            }),
             { stdio: ['ignore', 'pipe', 'pipe'] },
         );
 

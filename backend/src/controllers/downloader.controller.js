@@ -67,10 +67,7 @@ function normalizeYouTubeURL(rawUrl) {
     if (!videoId) return null;
     return `https://www.youtube.com/watch?v=${videoId}`;
 }
-<<<<<<< HEAD
-=======
 
->>>>>>> e7749b5 (update)
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatBytes(bytes) {
     if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
@@ -109,10 +106,7 @@ const METADATA_FALLBACK_OPTIONS = [
         extractorArgs: 'youtube:player_client=ios,web',
     },
 ];
-<<<<<<< HEAD
-=======
 
->>>>>>> e7749b5 (update)
 // ─── In-memory metadata cache (TTL: 10 minutes) ───────────────────────────────
 const infoCache = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
@@ -134,10 +128,7 @@ function classifyYtDlpError(err) {
 
     return { status: 400, error: 'Invalid URL or unable to fetch video info' };
 }
-<<<<<<< HEAD
-=======
 
->>>>>>> e7749b5 (update)
 async function fetchVideoInfo(videoURL) {
     const cached = infoCache.get(videoURL);
     if (cached && Date.now() - cached.ts < CACHE_TTL) {

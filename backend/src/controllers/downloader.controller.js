@@ -93,20 +93,62 @@ const METADATA_OPTIONS = {
     noWarnings: true,
     skipDownload: true,
     noCheckCertificates: true,
+    geoBypass: true,
 };
+
+const METADATA_FALLBACK_OPTIONS = [
+    {
+        ...METADATA_OPTIONS,
+        extractorArgs: 'youtube:player_client=android,web_embedded',
+    },
+    {
+        ...METADATA_OPTIONS,
+        extractorArgs: 'youtube:player_client=ios,web',
+    },
+];
 
 // ─── In-memory metadata cache (TTL: 10 minutes) ───────────────────────────────
 const infoCache = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
+
+function classifyYtDlpError(err) {
+    const details = `${err?.message || ''}\n${err?.stderr || ''}`.toLowerCase();
+
+    if (details.includes('not available in your country') || details.includes('this video is not available in your country')) {
+        return { status: 451, error: 'This video is region-restricted on the server location.' };
+    }
+
+    if (details.includes('confirm you\'re not a bot') || details.includes('sign in to confirm')) {
+        return { status: 403, error: 'YouTube blocked this video request from the server. Try another video or retry later.' };
+    }
+
+    if (details.includes('video unavailable') || details.includes('private video')) {
+        return { status: 404, error: 'This video is unavailable or private.' };
+    }
+
+    return { status: 400, error: 'Invalid URL or unable to fetch video info' };
+}
 
 async function fetchVideoInfo(videoURL) {
     const cached = infoCache.get(videoURL);
     if (cached && Date.now() - cached.ts < CACHE_TTL) {
         return cached.data;
     }
-    const data = await ytDlp(videoURL, METADATA_OPTIONS);
-    infoCache.set(videoURL, { data, ts: Date.now() });
-    return data;
+
+    const attempts = [METADATA_OPTIONS, ...METADATA_FALLBACK_OPTIONS];
+    let lastError = null;
+
+    for (const options of attempts) {
+        try {
+            const data = await ytDlp(videoURL, options);
+            infoCache.set(videoURL, { data, ts: Date.now() });
+            return data;
+        } catch (err) {
+            lastError = err;
+        }
+    }
+
+    throw lastError || new Error('Could not fetch video metadata');
 }
 
 // ─── Controllers ──────────────────────────────────────────────────────────────
@@ -130,7 +172,8 @@ async function infoController(req, res) {
         });
     } catch (err) {
         console.error('Info fetch error:', err.message);
-        res.status(400).json({ error: 'Invalid URL or unable to fetch video info' });
+        const mapped = classifyYtDlpError(err);
+        res.status(mapped.status).json({ error: mapped.error });
     }
 }
 

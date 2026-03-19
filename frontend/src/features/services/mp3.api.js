@@ -1,13 +1,15 @@
 import axios from "axios";
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api",
+    baseURL: apiBaseUrl,
     withCredentials: false,
 });
 
 const parseApiError = async (error) => {
     if (error?.message === "Network Error") {
-        return "Backend server is not reachable. Please run backend on port 3000.";
+        return "Backend server is not reachable.";
     }
 
     const responseData = error?.response?.data;

@@ -148,8 +148,9 @@ const COOKIES_FILE_PATH = path.join(__dirname, '../../cookies.txt');
 function buildYtDlpRuntimeOptions(options = {}) {
     const merged = {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        retries: 2,
-        extractorRetries: 2,
+        retries: 1,
+        extractorRetries: 1,
+        socketTimeout: 12,
         ...options,
     };
 
@@ -173,6 +174,16 @@ async function fetchOEmbedInfo(videoURL) {
         thumbnail: payload.thumbnail_url,
         duration: null,
     };
+}
+
+function isLikelyBotOrBlockError(err) {
+    const details = `${err?.message || ''}\n${err?.stderr || ''}`.toLowerCase();
+    return (
+        details.includes('403')
+        || details.includes('confirm you\'re not a bot')
+        || details.includes('captcha')
+        || details.includes('sign in to confirm')
+    );
 }
 
 function classifyYtDlpError(err) {
@@ -221,13 +232,15 @@ function classifyYtDlpError(err) {
     return { status: 502, error: 'Unable to fetch video info from YouTube right now. Please retry or try another link.' };
 }
 
-async function fetchVideoInfo(videoURL) {
+async function fetchVideoInfo(videoURL, opts = {}) {
+    const { maxAttempts, failFastOnBlock = false } = opts;
     const cached = infoCache.get(videoURL);
     if (cached && Date.now() - cached.ts < CACHE_TTL) {
         return cached.data;
     }
 
-    const attempts = [METADATA_OPTIONS, ...METADATA_FALLBACK_OPTIONS];
+    const attempts = [METADATA_OPTIONS, ...METADATA_FALLBACK_OPTIONS]
+        .slice(0, Math.max(1, Number(maxAttempts) || Number.MAX_SAFE_INTEGER));
     let lastError = null;
 
     for (let i = 0; i < attempts.length; i++) {
@@ -241,6 +254,10 @@ async function fetchVideoInfo(videoURL) {
         } catch (err) {
             lastError = err;
             console.error(`[yt-dlp] Attempt ${i + 1} failed: ${err.message}`);
+
+            if (failFastOnBlock && isLikelyBotOrBlockError(err)) {
+                break;
+            }
         }
     }
 
@@ -262,7 +279,8 @@ async function infoController(req, res) {
 
     try {
         console.log(`[/api/info] Processing: ${videoURL}`);
-        const info = await fetchVideoInfo(videoURL);
+        // Keep /info responsive: do a few fast attempts, then fallback.
+        const info = await fetchVideoInfo(videoURL, { maxAttempts: 3, failFastOnBlock: true });
         console.log(`[/api/info] Success: ${info.title} (${info.duration}s)`);
         res.json({
             title: info.title,
@@ -306,7 +324,8 @@ async function downloadController(req, res) {
 
         // Metadata failure should not always block download.
         try {
-            const info = await fetchVideoInfo(videoURL);
+            // Keep download startup fast: use cache if present, else only one quick try.
+            const info = await fetchVideoInfo(videoURL, { maxAttempts: 1, failFastOnBlock: true });
             console.log(`[/api/download] Metadata fetched: ${info.title}`);
             title = info.title || title;
             thumbnail = info.thumbnail || thumbnail;

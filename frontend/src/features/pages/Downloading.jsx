@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import "../styles/Downloading.scss";
 
 const getDurationText = (duration) => {
@@ -18,38 +18,13 @@ const getDurationText = (duration) => {
   return duration;
 };
 
-const Downloading = ({ isOpen, onClose, videoData, onComplete }) => {
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        const newProgress = prev + Math.random() * 15;
-        if (newProgress >= 100) {
-          clearInterval(interval);
-          // Call onComplete callback after a short delay
-          setTimeout(() => {
-            if (onComplete) {
-              onComplete();
-            }
-          }, 500);
-          return 100;
-        }
-        return newProgress;
-      });
-    }, 800);
-
-    return () => {
-      clearInterval(interval);
-      setProgress(0);
-    };
-  }, [isOpen, onComplete]);
+const Downloading = ({ isOpen, onClose, videoData }) => {
+  const progress = useMemo(() => (isOpen ? 65 : 0), [isOpen]);
 
   const handleCancel = () => {
-    setProgress(0);
-    onClose();
+    if (typeof onClose === "function") {
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
@@ -73,7 +48,7 @@ const Downloading = ({ isOpen, onClose, videoData, onComplete }) => {
           {/* Video Info */}
           <div className="video-info">
             <h3 className="video-title">
-              {videoData?.title || "YouTube Video Title Example..."}
+              {videoData?.title || "Fetching video details..."}
             </h3>
             <p className="conversion-status">
               Converting to MP3{" "}

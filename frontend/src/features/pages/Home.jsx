@@ -9,7 +9,6 @@ import { useDownlod } from "../hook/useDownlod";
 const Home = () => {
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [quality, setQuality] = useState("320");
-  const [isDownloading, setIsDownloading] = useState(false);
   const [showResult, setShowResult] = useState(false);
 
   const {
@@ -35,23 +34,11 @@ const Home = () => {
     }
 
     try {
-      setIsDownloading(true);
       await fetchVideoInfo(youtubeUrl, quality);
-      // Data is set in context, will display in modal
+      setShowResult(true);
     } catch (err) {
       console.error("Conversion error:", err);
-      setIsDownloading(false);
     }
-  };
-
-  const handleCloseDownloading = () => {
-    setIsDownloading(false);
-    resetVideoData();
-  };
-
-  const handleDownloadComplete = () => {
-    setIsDownloading(false);
-    setShowResult(true);
   };
 
   const handleConvertAnother = () => {
@@ -68,12 +55,6 @@ const Home = () => {
         <DownloadResult
           videoData={videoData}
           onConvertAnother={handleConvertAnother}
-        />
-        <Downloading
-          isOpen={isDownloading}
-          onClose={handleCloseDownloading}
-          videoData={videoData}
-          onComplete={handleDownloadComplete}
         />
       </>
     );
@@ -215,10 +196,10 @@ const Home = () => {
 
       {/* Downloading Modal */}
       <Downloading
-        isOpen={isDownloading}
-        onClose={handleCloseDownloading}
+        isOpen={isLoading}
+        onClose={() => {}}
         videoData={videoData}
-        onComplete={handleDownloadComplete}
+        onComplete={() => {}}
       />
     </div>
   );

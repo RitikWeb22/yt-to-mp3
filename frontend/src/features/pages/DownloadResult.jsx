@@ -62,18 +62,17 @@ const DownloadResult = ({ videoData, onConvertAnother }) => {
                   className="thumbnail"
                 />
                 <span className="duration">
-                  {videoData?.duration || "04:30"}
+                  {videoData?.duration || "--:--"}
                 </span>
               </div>
 
               {/* Video Details */}
               <div className="video-details">
                 <h1 className="video-title">
-                  {videoData?.title ||
-                    "Lofi Hip Hop Radio - Beats to Relax/Study to (2024 Mix)"}
+                  {videoData?.title || "Untitled Video"}
                 </h1>
                 <p className="channel-info">
-                  {videoData?.channel || "Channel: Lofi Girl + 1.2M Views"}
+                  {videoData?.channel || "Source: YouTube"}
                 </p>
                 <div className="status-badge">
                   <span className="status-dot"></span>

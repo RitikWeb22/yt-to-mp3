@@ -99,11 +99,39 @@ const METADATA_OPTIONS = {
 const METADATA_FALLBACK_OPTIONS = [
     {
         ...METADATA_OPTIONS,
-        extractorArgs: 'youtube:player_client=android,web_embedded',
+        extractorArgs: 'youtube:player_client=android',
     },
     {
         ...METADATA_OPTIONS,
-        extractorArgs: 'youtube:player_client=ios,web',
+        extractorArgs: 'youtube:player_client=ios',
+    },
+    {
+        ...METADATA_OPTIONS,
+        extractorArgs: 'youtube:player_client=web_embedded',
+    },
+    {
+        ...METADATA_OPTIONS,
+        extractorArgs: 'youtube:player_client=mweb',
+    },
+    {
+        ...METADATA_OPTIONS,
+        extractorArgs: 'youtube:player_client=tv',
+    },
+    {
+        ...METADATA_OPTIONS,
+        extractorArgs: 'youtube:player_client=web',
+        geoBypass: true,
+        socketTimeout: 30,
+    },
+    {
+        ...METADATA_OPTIONS,
+        geoBypass: true,
+        geoLng: 0,
+        geoLat: 0,
+    },
+    {
+        ...METADATA_OPTIONS,
+        // Default fallback without args
     },
 ];
 
@@ -112,18 +140,28 @@ const infoCache = new Map();
 const CACHE_TTL = 10 * 60 * 1000;
 
 function classifyYtDlpError(err) {
-    const details = `${err?.message || ''}\n${err?.stderr || ''}`.toLowerCase();
+    const message = `${err?.message || ''}`.toLowerCase();
+    const stderr = `${err?.stderr || ''}`.toLowerCase();
+    const details = `${message}\n${stderr}`;
+
+    if (details.includes('http error 403') || details.includes('403')) {
+        return { status: 403, error: 'YouTube server rejected request (403). Server IP may be blocked. Retry in a moment.' };
+    }
 
     if (details.includes('not available in your country') || details.includes('this video is not available in your country')) {
         return { status: 451, error: 'This video is region-restricted on the server location.' };
     }
 
-    if (details.includes('confirm you\'re not a bot') || details.includes('sign in to confirm')) {
-        return { status: 403, error: 'YouTube blocked this video request from the server. Try another video or retry later.' };
+    if (details.includes('confirm you\'re not a bot') || details.includes('sign in to confirm you\'re not a bot')) {
+        return { status: 403, error: 'YouTube detected automated access. Try again in a few moments.' };
     }
 
-    if (details.includes('video unavailable') || details.includes('private video')) {
-        return { status: 404, error: 'This video is unavailable or private.' };
+    if (details.includes('video unavailable') || details.includes('private video') || details.includes('deleted')) {
+        return { status: 404, error: 'This video is unavailable, private, or has been deleted.' };
+    }
+
+    if (details.includes('throttled') || details.includes('rate limit')) {
+        return { status: 429, error: 'YouTube rate limited this request. Wait a moment and retry.' };
     }
 
     return { status: 400, error: 'Invalid URL or unable to fetch video info' };
@@ -138,16 +176,21 @@ async function fetchVideoInfo(videoURL) {
     const attempts = [METADATA_OPTIONS, ...METADATA_FALLBACK_OPTIONS];
     let lastError = null;
 
-    for (const options of attempts) {
+    for (let i = 0; i < attempts.length; i++) {
         try {
+            const options = attempts[i];
+            console.log(`[yt-dlp] Attempt ${i + 1}/${attempts.length} for ${videoURL}`);
             const data = await ytDlp(videoURL, options);
+            console.log(`[yt-dlp] Success on attempt ${i + 1}: ${data.title}`);
             infoCache.set(videoURL, { data, ts: Date.now() });
             return data;
         } catch (err) {
             lastError = err;
+            console.error(`[yt-dlp] Attempt ${i + 1} failed: ${err.message}`);
         }
     }
 
+    console.error(`[yt-dlp] All ${attempts.length} attempts failed for ${videoURL}`);
     throw lastError || new Error('Could not fetch video metadata');
 }
 
@@ -164,14 +207,16 @@ async function infoController(req, res) {
     }
 
     try {
+        console.log(`[/api/info] Processing: ${videoURL}`);
         const info = await fetchVideoInfo(videoURL);
+        console.log(`[/api/info] Success: ${info.title} (${info.duration}s)`);
         res.json({
             title: info.title,
             thumbnail: info.thumbnail,
             duration: info.duration,
         });
     } catch (err) {
-        console.error('Info fetch error:', err.message);
+        console.error(`[/api/info] Error for ${videoURL}:`, err.message);
         const mapped = classifyYtDlpError(err);
         res.status(mapped.status).json({ error: mapped.error });
     }
@@ -190,8 +235,10 @@ async function downloadController(req, res) {
     }
 
     try {
+        console.log(`[/api/download] Starting for: ${videoURL} (${bitrate}kbps)`);
         // Fetch metadata (served from cache if /info was already called)
         const info = await fetchVideoInfo(videoURL);
+        console.log(`[/api/download] Metadata fetched: ${info.title}`);
         const { title, thumbnail } = info;
 
         // Fire DB save in parallel — don't block streaming on it
@@ -286,9 +333,10 @@ async function downloadController(req, res) {
         transcodedStream.pipe(res);
 
     } catch (err) {
-        console.error('Download error:', err.message);
+        console.error(`[/api/download] Error for ${videoURL}:`, err.message);
+        const mapped = classifyYtDlpError(err);
         if (!res.headersSent) {
-            res.status(500).json({ error: 'Download failed' });
+            res.status(mapped.status).json({ error: mapped.error });
         }
     }
 }

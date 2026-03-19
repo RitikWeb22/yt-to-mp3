@@ -7,11 +7,15 @@ const connectDB = require('./src/config/db');
 dotenv.config();
 
 if (process.env.YOUTUBE_COOKIES) {
-    fs.writeFileSync(path.join(__dirname, 'cookies.txt'), process.env.YOUTUBE_COOKIES, 'utf8');
-    console.log('✅ Cookies written from environment');
+    try {
+        fs.writeFileSync(path.join(__dirname, 'cookies.txt'), process.env.YOUTUBE_COOKIES, 'utf8');
+        console.log('Cookies written from environment');
+    } catch (error) {
+        console.error('Failed to write cookies file:', error.message);
+    }
 }
 
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 connectDB();
 
 app.listen(PORT, () => {

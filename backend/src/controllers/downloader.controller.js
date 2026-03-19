@@ -22,6 +22,9 @@ const YOUTUBE_HOSTS = new Set([
     'youtube.com',
     'www.youtube.com',
     'm.youtube.com',
+    'music.youtube.com',
+    'youtube-nocookie.com',
+    'www.youtube-nocookie.com',
     'youtu.be',
     'www.youtu.be',
 ]);
@@ -152,19 +155,37 @@ function classifyYtDlpError(err) {
         return { status: 451, error: 'This video is region-restricted on the server location.' };
     }
 
-    if (details.includes('confirm you\'re not a bot') || details.includes('sign in to confirm you\'re not a bot')) {
+    if (
+        details.includes('confirm you\'re not a bot')
+        || details.includes('sign in to confirm you\'re not a bot')
+        || (details.includes('sign in') && details.includes('bot'))
+        || details.includes('captcha')
+    ) {
         return { status: 403, error: 'YouTube detected automated access. Try again in a few moments.' };
     }
 
-    if (details.includes('video unavailable') || details.includes('private video') || details.includes('deleted')) {
+    if (
+        details.includes('video unavailable')
+        || details.includes('private video')
+        || details.includes('deleted')
+        || details.includes('this video is unavailable')
+    ) {
         return { status: 404, error: 'This video is unavailable, private, or has been deleted.' };
+    }
+
+    if (
+        details.includes('unable to extract')
+        || details.includes('unsupported url')
+        || details.includes('unable to download webpage')
+    ) {
+        return { status: 502, error: 'Could not extract video information from YouTube right now. Please retry.' };
     }
 
     if (details.includes('throttled') || details.includes('rate limit')) {
         return { status: 429, error: 'YouTube rate limited this request. Wait a moment and retry.' };
     }
 
-    return { status: 400, error: 'Invalid URL or unable to fetch video info' };
+    return { status: 502, error: 'Unable to fetch video info from YouTube right now. Please retry or try another link.' };
 }
 
 async function fetchVideoInfo(videoURL) {

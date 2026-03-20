@@ -1,4 +1,5 @@
 const ytDlp = require('yt-dlp-exec');
+const ytdl = require('@distube/ytdl-core');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const fs = require('fs');
@@ -169,9 +170,9 @@ const COOKIES_FILE_PATH = path.join(__dirname, '../../cookies.txt');
 function buildYtDlpRuntimeOptions(options = {}) {
     const merged = {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        retries: 0,
-        extractorRetries: 0,
-        socketTimeout: 8,
+        retries: 2,
+        extractorRetries: 2,
+        socketTimeout: 20,
         ...options,
     };
 
@@ -194,6 +195,26 @@ async function fetchOEmbedInfo(videoURL) {
         title: payload.title,
         thumbnail: payload.thumbnail_url,
         duration: null,
+    };
+}
+
+async function fetchYtdlCoreInfo(videoURL) {
+    const info = await ytdl.getBasicInfo(videoURL, {
+        requestOptions: {
+            headers: {
+                'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            },
+        },
+    });
+
+    const details = info?.videoDetails || {};
+    const thumbnails = details.thumbnails || [];
+    const lastThumb = thumbnails.length > 0 ? thumbnails[thumbnails.length - 1]?.url : '';
+
+    return {
+        title: details.title || '',
+        thumbnail: lastThumb || '',
+        duration: Number.parseInt(details.lengthSeconds || '0', 10) || null,
     };
 }
 
@@ -300,8 +321,8 @@ async function infoController(req, res) {
 
     try {
         console.log(`[/api/info] Processing: ${videoURL}`);
-        // Keep /info responsive with low-latency retries.
-        const info = await fetchVideoInfo(videoURL, { maxAttempts: 2, failFastOnBlock: true });
+        // Keep /info responsive while still allowing enough retries in cloud environments.
+        const info = await fetchVideoInfo(videoURL, { maxAttempts: 4, failFastOnBlock: true });
         console.log(`[/api/info] Success: ${info.title} (${info.duration}s)`);
         res.json({
             title: info.title,
@@ -313,6 +334,16 @@ async function infoController(req, res) {
         const mapped = classifyYtDlpError(err);
 
         if (mapped.status === 403 || mapped.status === 429 || mapped.status === 502) {
+            try {
+                const fallbackYtdl = await fetchYtdlCoreInfo(videoURL);
+                if (fallbackYtdl?.title) {
+                    console.log(`[/api/info] ytdl-core fallback success: ${fallbackYtdl.title}`);
+                    return res.json(fallbackYtdl);
+                }
+            } catch (ytdlErr) {
+                console.error(`[/api/info] ytdl-core fallback failed: ${ytdlErr.message}`);
+            }
+
             try {
                 const fallback = await fetchOEmbedInfo(videoURL);
                 console.log(`[/api/info] oEmbed fallback success: ${fallback.title}`);

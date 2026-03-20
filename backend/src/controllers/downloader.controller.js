@@ -3,6 +3,7 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const fs = require('fs');
 const path = require('path');
+const { Transform } = require('stream');
 const sanitizeFilename = require('sanitize-filename');   // npm i sanitize-filename
 const rateLimit = require('express-rate-limit');          // npm i express-rate-limit
 const DownloadHistory = require('../models/download.history.model');
@@ -88,8 +89,28 @@ function formatBytes(bytes) {
 
 function parseBitrate(quality) {
     const allowed = new Set([128, 192, 256, 320]);
-    const parsed = Number(quality);
+    const parsed = Number.parseInt(String(quality || ''), 10);
     return allowed.has(parsed) ? parsed : 320;
+}
+
+function formatDurationText(seconds) {
+    const totalSeconds = Number(seconds);
+    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '--:--';
+
+    const hrs = Math.floor(totalSeconds / 3600);
+    const mins = Math.floor((totalSeconds % 3600) / 60);
+    const secs = Math.floor(totalSeconds % 60);
+
+    if (hrs > 0) {
+        return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function sanitizeMetadataField(value, maxLen = 200) {
+    if (typeof value !== 'string') return '';
+    return value.trim().slice(0, maxLen);
 }
 
 // ─── Shared yt-dlp options ────────────────────────────────────────────────────
@@ -148,9 +169,9 @@ const COOKIES_FILE_PATH = path.join(__dirname, '../../cookies.txt');
 function buildYtDlpRuntimeOptions(options = {}) {
     const merged = {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        retries: 1,
-        extractorRetries: 1,
-        socketTimeout: 12,
+        retries: 0,
+        extractorRetries: 0,
+        socketTimeout: 8,
         ...options,
     };
 
@@ -279,8 +300,8 @@ async function infoController(req, res) {
 
     try {
         console.log(`[/api/info] Processing: ${videoURL}`);
-        // Keep /info responsive: do a few fast attempts, then fallback.
-        const info = await fetchVideoInfo(videoURL, { maxAttempts: 3, failFastOnBlock: true });
+        // Keep /info responsive with low-latency retries.
+        const info = await fetchVideoInfo(videoURL, { maxAttempts: 2, failFastOnBlock: true });
         console.log(`[/api/info] Success: ${info.title} (${info.duration}s)`);
         res.json({
             title: info.title,
@@ -308,6 +329,9 @@ async function infoController(req, res) {
 async function downloadController(req, res) {
     const inputURL = req.query.url;
     const bitrate = parseBitrate(req.query.quality);
+    const clientTitle = sanitizeMetadataField(req.query.title, 200);
+    const clientThumbnail = sanitizeMetadataField(req.query.thumbnail, 500);
+    const clientDuration = sanitizeMetadataField(req.query.duration, 20);
 
     if (!inputURL) {
         return res.status(400).json({ error: 'URL is required' });
@@ -319,18 +343,21 @@ async function downloadController(req, res) {
 
     try {
         console.log(`[/api/download] Starting for: ${videoURL} (${bitrate}kbps)`);
-        let title = `audio-${extractYouTubeVideoId(videoURL) || Date.now()}`;
-        let thumbnail = '';
+        let title = clientTitle || `audio-${extractYouTubeVideoId(videoURL) || Date.now()}`;
+        let thumbnail = clientThumbnail || '';
+        let duration = clientDuration || '--:--';
 
-        // Metadata failure should not always block download.
-        try {
-            // Keep download startup fast: use cache if present, else only one quick try.
-            const info = await fetchVideoInfo(videoURL, { maxAttempts: 1, failFastOnBlock: true });
-            console.log(`[/api/download] Metadata fetched: ${info.title}`);
-            title = info.title || title;
-            thumbnail = info.thumbnail || thumbnail;
-        } catch (metaErr) {
-            console.warn(`[/api/download] Metadata unavailable, proceeding with fallback title: ${metaErr.message}`);
+        // Reuse client metadata when available to avoid a second metadata round trip.
+        if (!clientTitle || !clientThumbnail || !clientDuration) {
+            try {
+                const info = await fetchVideoInfo(videoURL, { maxAttempts: 1, failFastOnBlock: true });
+                console.log(`[/api/download] Metadata fetched: ${info.title}`);
+                title = info.title || title;
+                thumbnail = info.thumbnail || thumbnail;
+                duration = formatDurationText(info.duration);
+            } catch (metaErr) {
+                console.warn(`[/api/download] Metadata unavailable, proceeding with fallback title: ${metaErr.message}`);
+            }
         }
 
         // Fire DB save in parallel — don't block streaming on it
@@ -338,6 +365,7 @@ async function downloadController(req, res) {
             title,
             url: videoURL,
             thumbnail,
+            duration,
             quality: `${bitrate}kbps`,
             size: 'Processing',
         });
@@ -398,15 +426,18 @@ async function downloadController(req, res) {
             })
             .pipe();
 
-        transcodedStream.on('data', (chunk) => {
-            downloadedBytes += chunk.length;
+        const counterStream = new Transform({
+            transform(chunk, encoding, callback) {
+                downloadedBytes += chunk.length;
+                callback(null, chunk);
+            },
         });
 
         transcodedStream.on('end', async () => {
             clearTimeout(timeout);
             try {
                 await DownloadHistory.findByIdAndUpdate(historyEntry._id, {
-                    size: formatBytes(downloadedBytes),
+                    size: downloadedBytes > 0 ? formatBytes(downloadedBytes) : 'Unknown',
                 });
             } catch (updateErr) {
                 console.error('History size update error:', updateErr.message);
@@ -422,7 +453,7 @@ async function downloadController(req, res) {
             }
         });
 
-        transcodedStream.pipe(res);
+        transcodedStream.pipe(counterStream).pipe(res);
 
     } catch (err) {
         console.error(`[/api/download] Error for ${videoURL}:`, err.message);

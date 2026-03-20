@@ -41,7 +41,7 @@ const Downloading = ({ isOpen, onClose, videoData }) => {
               className="thumbnail-img"
             />
             <div className="duration-badge">
-              {getDurationText(videoData?.duration)}
+              {getDurationText(videoData?.durationText || videoData?.duration)}
             </div>
           </div>
 

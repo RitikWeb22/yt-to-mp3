@@ -38,11 +38,13 @@ export const DownloadProvider = ({ children }) => {
     setError(null);
     try {
       const info = await getVideoInfo(youtubeUrl);
+      const durationSeconds = Number(info?.duration);
       setVideoData({
         ...info,
         url: youtubeUrl,
         quality,
-        duration: formatDuration(info?.duration),
+        duration: Number.isFinite(durationSeconds) ? durationSeconds : null,
+        durationText: formatDuration(durationSeconds),
       });
       return info;
     } catch (err) {
@@ -61,7 +63,7 @@ export const DownloadProvider = ({ children }) => {
       setError(null);
       setDownloadProgress(0);
       try {
-        const blob = await downloadMp3(youtubeUrl, quality);
+        const blob = await downloadMp3(youtubeUrl, quality, videoData || {});
 
         // Get filename from videoData or use default
         const filename = videoData?.title
@@ -69,6 +71,9 @@ export const DownloadProvider = ({ children }) => {
           : "audio.mp3";
 
         triggerDownload(blob, filename);
+
+        // Give backend a brief moment to persist final size before fetching history.
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         // Refresh history after successful download
         await loadDownloadHistory();

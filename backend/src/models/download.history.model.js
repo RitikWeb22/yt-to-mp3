@@ -4,6 +4,7 @@ const downloadHistorySchema = new mongoose.Schema({
     title: { type: String, required: [true, "Title is required"] },
     url: { type: String, required: [true, "URL is required"] },
     thumbnail: { type: String },
+    duration: { type: String, default: "--:--" },
     size: { type: String },
     quality: { type: String, default: "320kbps" },
     date: { type: Date, default: Date.now },

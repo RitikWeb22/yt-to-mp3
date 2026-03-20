@@ -56,12 +56,15 @@ export const getVideoInfo = async (youtubeUrl) => {
  * @param {string} quality - Audio quality (128, 192, 256, 320)
  * @returns {Promise<Blob>}
  */
-export const downloadMp3 = async (youtubeUrl, quality = "320") => {
+export const downloadMp3 = async (youtubeUrl, quality = "320", metadata = {}) => {
     try {
         const response = await api.get("/download", {
             params: {
                 url: youtubeUrl,
                 quality: quality,
+                title: metadata?.title,
+                thumbnail: metadata?.thumbnail,
+                duration: metadata?.durationText || metadata?.duration,
             },
             responseType: "blob",
         });
@@ -94,7 +97,12 @@ export const triggerDownload = (blob, filename) => {
  */
 export const getDownloadHistory = async () => {
     try {
-        const response = await api.get("/history");
+        const response = await api.get("/history", {
+            params: {
+                page: 1,
+                limit: 50,
+            },
+        });
         return response.data;
     } catch (error) {
         console.error("Error fetching download history:", error);

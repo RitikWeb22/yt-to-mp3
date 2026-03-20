@@ -62,7 +62,7 @@ const DownloadResult = ({ videoData, onConvertAnother }) => {
                   className="thumbnail"
                 />
                 <span className="duration">
-                  {videoData?.duration || "--:--"}
+                  {videoData?.durationText || videoData?.duration || "--:--"}
                 </span>
               </div>
 

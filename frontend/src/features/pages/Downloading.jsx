@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import "../styles/Downloading.scss";
 
 const getDurationText = (duration) => {
-  if (!duration) return "00:00";
+  if (!duration) return "--:--";
   if (typeof duration === "number") {
     const hrs = Math.floor(duration / 3600);
     const mins = Math.floor((duration % 3600) / 60);

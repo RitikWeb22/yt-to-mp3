@@ -370,11 +370,6 @@ async function downloadController(req, res) {
             size: 'Processing',
         });
 
-        // Sanitize filename
-        const sanitizedTitle = sanitizeFilename(title).substring(0, 100) || 'audio';
-        res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
-        res.setHeader('Content-Type', 'audio/mpeg');
-
         // Start streaming immediately without waiting for DB
         const subprocess = ytDlp.exec(
             videoURL,
@@ -390,6 +385,17 @@ async function downloadController(req, res) {
 
         // Resolve history entry (should be done by now)
         const historyEntry = await historySave;
+        let historyMarkedFailed = false;
+
+        const markHistoryFailed = async () => {
+            if (historyMarkedFailed) return;
+            historyMarkedFailed = true;
+            try {
+                await DownloadHistory.findByIdAndUpdate(historyEntry._id, { size: 'Failed' });
+            } catch (updateErr) {
+                console.error('History size update error:', updateErr.message);
+            }
+        };
 
         // Subprocess timeout — kill after 3 minutes
         const timeout = setTimeout(() => {
@@ -397,7 +403,15 @@ async function downloadController(req, res) {
             if (!res.headersSent) {
                 res.status(504).json({ error: 'Download timed out' });
             }
+            markHistoryFailed();
         }, 3 * 60 * 1000);
+
+        let ytDlpStderr = '';
+        if (subprocess.stderr) {
+            subprocess.stderr.on('data', (chunk) => {
+                ytDlpStderr += String(chunk || '');
+            });
+        }
 
         subprocess.on('error', (err) => {
             clearTimeout(timeout);
@@ -405,9 +419,23 @@ async function downloadController(req, res) {
             if (!res.headersSent) {
                 res.status(500).json({ error: 'yt-dlp failed to process this video' });
             }
+            markHistoryFailed();
+        });
+
+        subprocess.on('close', (code) => {
+            if (code === 0) return;
+
+            clearTimeout(timeout);
+            console.error(`yt-dlp exited with code ${code}`);
+            if (!res.headersSent) {
+                const mapped = classifyYtDlpError({ message: `yt-dlp exit code ${code}`, stderr: ytDlpStderr });
+                res.status(mapped.status).json({ error: mapped.error });
+            }
+            markHistoryFailed();
         });
 
         let downloadedBytes = 0;
+        let headersSentForFile = false;
 
         const transcodedStream = ffmpeg(subprocess.stdout)
             .audioBitrate(bitrate)
@@ -428,6 +456,12 @@ async function downloadController(req, res) {
 
         const counterStream = new Transform({
             transform(chunk, encoding, callback) {
+                if (!headersSentForFile) {
+                    const sanitizedTitle = sanitizeFilename(title).substring(0, 100) || 'audio';
+                    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedTitle}.mp3"`);
+                    res.setHeader('Content-Type', 'audio/mpeg');
+                    headersSentForFile = true;
+                }
                 downloadedBytes += chunk.length;
                 callback(null, chunk);
             },
@@ -436,9 +470,16 @@ async function downloadController(req, res) {
         transcodedStream.on('end', async () => {
             clearTimeout(timeout);
             try {
-                await DownloadHistory.findByIdAndUpdate(historyEntry._id, {
-                    size: downloadedBytes > 0 ? formatBytes(downloadedBytes) : 'Unknown',
-                });
+                if (downloadedBytes > 0) {
+                    await DownloadHistory.findByIdAndUpdate(historyEntry._id, {
+                        size: formatBytes(downloadedBytes),
+                    });
+                } else {
+                    await markHistoryFailed();
+                    if (!res.headersSent) {
+                        return res.status(502).json({ error: 'No audio data received from source video.' });
+                    }
+                }
             } catch (updateErr) {
                 console.error('History size update error:', updateErr.message);
             }
@@ -446,11 +487,7 @@ async function downloadController(req, res) {
 
         transcodedStream.on('error', async () => {
             clearTimeout(timeout);
-            try {
-                await DownloadHistory.findByIdAndUpdate(historyEntry._id, { size: 'Failed' });
-            } catch (updateErr) {
-                console.error('History size update error:', updateErr.message);
-            }
+            await markHistoryFailed();
         });
 
         transcodedStream.pipe(counterStream).pipe(res);

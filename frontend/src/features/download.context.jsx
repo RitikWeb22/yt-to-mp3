@@ -9,7 +9,7 @@ import {
 function formatDuration(seconds) {
   const totalSeconds = Number(seconds);
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
-    return "00:00";
+    return "--:--";
   }
 
   const hrs = Math.floor(totalSeconds / 3600);

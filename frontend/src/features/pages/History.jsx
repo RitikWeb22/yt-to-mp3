@@ -69,8 +69,18 @@ const History = () => {
     setCurrentPage(page);
   };
 
+  const formatDate = (rawDate) => {
+    const date = new Date(rawDate);
+    if (Number.isNaN(date.getTime())) return "--";
+    return date.toLocaleDateString(undefined, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
   return (
-    <div className="history">
+    <div className="history-page">
       <header className="header">
         <div className="container">
           <div className="header-content">
@@ -94,26 +104,23 @@ const History = () => {
         <div className="container">
           <div className="page-header">
             <div>
-              <h1>My Downloads</h1>
+              <h1>Download History</h1>
               <p className="subtitle">
-                Manage and access your previous conversions.
+                Browse, search, and redownload your recently converted tracks.
               </p>
             </div>
 
             <div className="search-wrapper">
               <input
-                type="text"
-                placeholder="Search by title..."
+                className="search-input"
                 value={searchTerm}
                 onChange={(e) => {
-                  setSearchTerm(e.target.value);
                   setCurrentPage(1);
+                  setSearchTerm(e.target.value);
                 }}
-                className="search-input"
+                placeholder="Search by title"
               />
-              <span className="search-icon">
-                <FiSearch />
-              </span>
+              <FiSearch className="search-icon" />
             </div>
           </div>
 
@@ -121,134 +128,111 @@ const History = () => {
             <table className="downloads-table">
               <thead>
                 <tr>
-                  <th className="video-col">VIDEO</th>
-                  <th className="size-col">SIZE</th>
-                  <th className="date-col">DATE</th>
-                  <th className="action-col">ACTION</th>
+                  <th className="video-col">Video</th>
+                  <th className="size-col">Size</th>
+                  <th className="date-col">Date</th>
+                  <th className="action-col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {currentDownloads.length > 0 ? (
-                  currentDownloads.map((download) => (
+                {currentDownloads.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="no-data">
+                      {isLoading
+                        ? "Loading history..."
+                        : "No downloads found for this search."}
+                    </td>
+                  </tr>
+                ) : (
+                  currentDownloads.map((item) => (
                     <tr
-                      key={download._id || download.id || download.url}
+                      key={item._id || `${item.url}-${item.date}`}
                       className="download-row"
                     >
-                      <td className="video-cell">
+                      <td>
                         <div className="video-info">
                           <div className="thumbnail-wrapper">
                             <img
-                              src={download.thumbnail || "/default-thumb.svg"}
-                              alt={download.title || "Downloaded video"}
                               className="thumbnail"
+                              src={item.thumbnail || "/default-thumb.svg"}
+                              alt={item.title || "Video thumbnail"}
                             />
                             <span className="duration">
-                              {download.duration || "--:--"}
+                              {item.duration || "--:--"}
                             </span>
                           </div>
                           <div className="video-details">
-                            <p className="title">
-                              {download.title || "Untitled video"}
-                            </p>
+                            <p className="title">{item.title || "Untitled"}</p>
                             <p className="channel">
-                              {download.channel || "YouTube • MP3"}
+                              {item.quality || "320kbps"}
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="size-cell">{download.size || "-"}</td>
-                      <td className="date-cell">
-                        {download.date
-                          ? new Date(download.date).toLocaleDateString()
-                          : download.createdAt
-                            ? new Date(download.createdAt).toLocaleDateString()
-                            : "-"}
-                      </td>
-                      <td className="action-cell">
+                      <td className="size-cell">{item.size || "--"}</td>
+                      <td className="date-cell">{formatDate(item.date)}</td>
+                      <td>
                         <button
                           className="redownload-btn"
                           onClick={() =>
                             handleRedownload(
-                              download.url,
-                              download.quality || "320",
+                              item.url,
+                              (item.quality || "320").replace("kbps", ""),
                             )
                           }
-                          disabled={isLoading || !download.url}
                         >
-                          <span className="download-icon">
-                            <FiDownload />
-                          </span>
-                          {isLoading ? "Downloading..." : "Redownload"}
+                          <FiDownload className="download-icon" />
+                          Redownload
                         </button>
                       </td>
                     </tr>
                   ))
-                ) : (
-                  <tr>
-                    <td colSpan="4" className="no-data">
-                      {isLoading ? "Loading history..." : "No downloads found"}
-                    </td>
-                  </tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {filteredDownloads.length > 0 && (
-            <div className="pagination-wrapper">
-              <p className="pagination-info">
-                Showing {startIndex + 1} to{" "}
-                {Math.min(endIndex, filteredDownloads.length)} of{" "}
-                {filteredDownloads.length} entries
-              </p>
-              <nav className="pagination">
-                <button
-                  className="pagination-btn"
-                  onClick={() => handlePageChange(safePage - 1)}
-                  disabled={safePage === 1}
-                >
-                  <FiArrowLeft />
-                </button>
+          <div className="pagination-wrapper">
+            <p className="pagination-info">
+              Showing {currentDownloads.length} of {filteredDownloads.length}{" "}
+              items
+            </p>
 
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                  (page) => (
-                    <button
-                      key={page}
-                      className={`pagination-btn ${
-                        safePage === page ? "active" : ""
-                      }`}
-                      onClick={() => handlePageChange(page)}
-                    >
-                      {page}
-                    </button>
-                  ),
-                )}
+            <div className="pagination">
+              <button
+                className="pagination-btn"
+                onClick={() => handlePageChange(safePage - 1)}
+                disabled={safePage === 1}
+                aria-label="Previous page"
+              >
+                <FiArrowLeft />
+              </button>
 
-                <button
-                  className="pagination-btn"
-                  onClick={() => handlePageChange(safePage + 1)}
-                  disabled={safePage === totalPages}
-                >
-                  <FiArrowRight />
-                </button>
-              </nav>
-            </div>
-          )}
-        </div>
-      </main>
+              {Array.from({ length: totalPages }).map((_, index) => {
+                const page = index + 1;
+                return (
+                  <button
+                    key={page}
+                    className={`pagination-btn ${safePage === page ? "active" : ""}`}
+                    onClick={() => handlePageChange(page)}
+                  >
+                    {page}
+                  </button>
+                );
+              })}
 
-      <footer className="footer">
-        <div className="container">
-          <div className="footer-content">
-            <p>&copy; 2024 SonicStream. All rights reserved.</p>
-            <div className="footer-links">
-              <a href="#terms">Terms of Service</a>
-              <a href="#privacy">Privacy Policy</a>
-              <a href="#contact">Contact Support</a>
+              <button
+                className="pagination-btn"
+                onClick={() => handlePageChange(safePage + 1)}
+                disabled={safePage === totalPages}
+                aria-label="Next page"
+              >
+                <FiArrowRight />
+              </button>
             </div>
           </div>
         </div>
-      </footer>
+      </main>
     </div>
   );
 };

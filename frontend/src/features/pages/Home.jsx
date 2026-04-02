@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { FiMusic, FiClipboard, FiSettings, FiDownload } from "react-icons/fi";
+import {
+  FiMusic,
+  FiClipboard,
+  FiSettings,
+  FiDownload,
+  FiZap,
+  FiShield,
+  FiSmartphone,
+} from "react-icons/fi";
 import "../styles/Home.scss";
 import Downloading from "./Downloading";
 import DownloadResult from "./DownloadResult";
@@ -15,7 +23,7 @@ const Home = () => {
     videoData,
     isLoading,
     error,
-    fetchVideoInfo,
+    fetchAndConvert,
     clearError,
     resetVideoData,
   } = useDownlod();
@@ -32,19 +40,23 @@ const Home = () => {
       alert("Please paste a YouTube URL");
       return;
     }
-
     try {
-      await fetchVideoInfo(youtubeUrl, quality);
+      await fetchAndConvert(youtubeUrl, quality);
       setShowResult(true);
     } catch (err) {
       console.error("Conversion error:", err);
     }
   };
 
+  const handleKeyDown = async (event) => {
+    if (event.key === "Enter") {
+      await handleConvert();
+    }
+  };
+
   const handleConvertAnother = () => {
     setShowResult(false);
     setYoutubeUrl("");
-    setQuality("320");
     resetVideoData();
   };
 
@@ -54,6 +66,7 @@ const Home = () => {
       <>
         <DownloadResult
           videoData={videoData}
+          selectedQuality={quality}
           onConvertAnother={handleConvertAnother}
         />
       </>
@@ -85,12 +98,11 @@ const Home = () => {
         <div className="container">
           <div className="hero-content">
             <h1>
-              Convert YouTube to <span className="highlight">High-Quality</span>{" "}
-              MP3
+              Make Your Playlist <span className="highlight">Portable</span>
             </h1>
             <p className="subtitle">
-              Fast, free, and unlimited. Download your favorite soundtracks and
-              podcasts in pristine audio quality instantly.
+              Turn YouTube links into clean MP3 downloads in one tap. Fast
+              conversion, richer metadata, and quality control up to 320kbps.
             </p>
 
             {/* Input Section */}
@@ -101,15 +113,54 @@ const Home = () => {
                   placeholder="Paste YouTube link here..."
                   value={youtubeUrl}
                   onChange={(e) => setYoutubeUrl(e.target.value)}
+                  onKeyDown={handleKeyDown}
                   className="url-input"
                 />
                 <button onClick={handleConvert} className="convert-btn">
-                  Convert Now
+                  Convert & Preview
                 </button>
               </div>
+              <div
+                className="quality-strip"
+                role="radiogroup"
+                aria-label="audio quality"
+              >
+                {[
+                  { value: "128", label: "128 kbps", note: "Light" },
+                  { value: "192", label: "192 kbps", note: "Balanced" },
+                  { value: "256", label: "256 kbps", note: "Crisp" },
+                  { value: "320", label: "320 kbps", note: "Studio" },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={`quality-pill ${quality === item.value ? "active" : ""}`}
+                    onClick={() => setQuality(item.value)}
+                  >
+                    <strong>{item.label}</strong>
+                    <span>{item.note}</span>
+                  </button>
+                ))}
+              </div>
               <p className="disclaimer">
-                By using our service, you accept accepting our Terms of Use.
+                By using this service, you confirm you have rights to download
+                the provided content.
               </p>
+            </div>
+
+            <div className="hero-highlights">
+              <div>
+                <FiZap />
+                <span>Quick conversion pipeline</span>
+              </div>
+              <div>
+                <FiShield />
+                <span>No account required</span>
+              </div>
+              <div>
+                <FiSmartphone />
+                <span>Desktop and mobile friendly</span>
+              </div>
             </div>
           </div>
         </div>
@@ -154,27 +205,6 @@ const Home = () => {
                 your device.
               </p>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Quality Selection */}
-      <section className="quality-section">
-        <div className="container">
-          <h2>Select Audio Quality</h2>
-          <div className="quality-options">
-            {["128", "192", "256", "320"].map((q) => (
-              <label key={q} className="quality-option">
-                <input
-                  type="radio"
-                  name="quality"
-                  value={q}
-                  checked={quality === q}
-                  onChange={(e) => setQuality(e.target.value)}
-                />
-                <span className="quality-label">{q} kbps</span>
-              </label>
-            ))}
           </div>
         </div>
       </section>

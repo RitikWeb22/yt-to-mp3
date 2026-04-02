@@ -1,9 +1,9 @@
 import { createContext, useState, useCallback } from "react";
 import {
-  getVideoInfo,
   downloadMp3,
-  triggerDownload,
   getDownloadHistory,
+  getVideoInfo,
+  triggerDownload,
 } from "./services/mp3.api";
 
 function formatDuration(seconds) {
@@ -56,18 +56,24 @@ export const DownloadProvider = ({ children }) => {
     }
   }, []);
 
+  const fetchAndConvert = useCallback(
+    async (youtubeUrl, quality = "320") => fetchVideoInfo(youtubeUrl, quality),
+    [fetchVideoInfo],
+  );
+
   // Download MP3
   const handleDownloadMp3 = useCallback(
-    async (youtubeUrl, quality = "320") => {
+    async (youtubeUrl, quality = "320", customVideoData = null) => {
       setIsLoading(true);
       setError(null);
       setDownloadProgress(0);
       try {
-        const blob = await downloadMp3(youtubeUrl, quality, videoData || {});
+        const activeVideoData = customVideoData || videoData || {};
+        const blob = await downloadMp3(youtubeUrl, quality, activeVideoData);
 
         // Get filename from videoData or use default
-        const filename = videoData?.title
-          ? `${videoData.title}.mp3`
+        const filename = activeVideoData?.title
+          ? `${activeVideoData.title}.mp3`
           : "audio.mp3";
 
         triggerDownload(blob, filename);
@@ -123,6 +129,7 @@ export const DownloadProvider = ({ children }) => {
     history,
     downloadProgress,
     fetchVideoInfo,
+    fetchAndConvert,
     handleDownloadMp3,
     loadDownloadHistory,
     clearError,

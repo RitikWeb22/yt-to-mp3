@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
-import { FiMusic, FiDownload, FiPlus } from "react-icons/fi";
+import { FiMusic, FiDownload, FiPlus, FiCheckCircle } from "react-icons/fi";
 import "../styles/DownloadResult.scss";
 import { Link } from "react-router-dom";
 import { useDownlod } from "../hook/useDownlod";
 
-const DownloadResult = ({ videoData, onConvertAnother }) => {
-  const [selectedQuality, setSelectedQuality] = useState("320");
+const DownloadResult = ({
+  videoData,
+  onConvertAnother,
+  selectedQuality: defaultQuality = "320",
+}) => {
+  const [selectedQuality, setSelectedQuality] = useState(defaultQuality);
   const { handleDownloadMp3, isLoading, error, clearError } = useDownlod();
 
   useEffect(() => {
@@ -115,6 +119,14 @@ const DownloadResult = ({ videoData, onConvertAnother }) => {
               </span>
               {isLoading ? "Downloading..." : "Download MP3"}
             </button>
+
+            <div className="download-tips">
+              <FiCheckCircle />
+              <span>
+                Tip: For spoken content, 128 or 192 kbps is usually enough and
+                saves storage.
+              </span>
+            </div>
 
             <button className="convert-another-btn" onClick={onConvertAnother}>
               <span className="plus-icon">

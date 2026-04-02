@@ -1,12 +1,12 @@
 :root {
-  --primary-color: #3b82f6;
-  --primary-dark: #1e40af;
-  --bg-dark: #0f172a;
-  --bg-darker: #020617;
-  --text-primary: #ffffff;
-  --text-secondary: #cbd5e1;
-  --border-color: #1e293b;
-  --card-bg: #1e293b;
+  --primary-color: #eb5e28;
+  --primary-dark: #c43f0f;
+  --bg-dark: #fff8f0;
+  --bg-darker: #fff1e6;
+  --text-primary: #211c1e;
+  --text-secondary: #5d4f54;
+  --border-color: #f0d8c6;
+  --card-bg: #ffffff;
 }
 
 /* ========== Modal Overlay ========== */
@@ -16,7 +16,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.85);
+  background-color: rgba(33, 28, 30, 0.7);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -58,7 +58,7 @@
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   padding: 2rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgba(139, 55, 14, 0.25);
 }
 
 /* ========== Video Thumbnail Section ========== */
@@ -181,10 +181,10 @@
 
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  background: linear-gradient(90deg, #eb5e28, #ff9f70);
   border-radius: 3px;
   transition: width 0.3s ease;
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 10px rgba(235, 94, 40, 0.4);
 }
 
 .warning-text {

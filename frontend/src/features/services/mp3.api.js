@@ -1,59 +1,30 @@
 import axios from "axios";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
-
-const api = axios.create({
-    baseURL: apiBaseUrl,
-    withCredentials: false,
-});
-
-const parseApiError = async (error) => {
-    if (error?.message === "Network Error") {
-        return "Backend server is not reachable.";
-    }
-
-    const responseData = error?.response?.data;
-
-    if (responseData instanceof Blob) {
-        try {
-            const text = await responseData.text();
-            const parsed = JSON.parse(text);
-            return parsed?.error || "Request failed";
-        } catch {
-            return "Request failed";
-        }
-    }
-
-    if (typeof responseData === "string") {
-        return responseData;
-    }
-
-    return responseData?.error || error?.message || "Request failed";
-};
+const api = axios.create({ baseURL: apiBaseUrl });
 
 /**
- * Get video information from YouTube URL
- * @param {string} youtubeUrl - YouTube video URL
- * @returns {Promise<{title, thumbnail, duration}>}
+ * Fetch YouTube metadata from backend.
+ * @param {string} youtubeUrl
+ * @returns {Promise<{title: string, thumbnail: string, duration: number|null, channel: string}>}
  */
 export const getVideoInfo = async (youtubeUrl) => {
     try {
-        const response = await api.get("/info", {
-            params: {
-                url: youtubeUrl,
-            },
-        });
+        const response = await api.get("/info", { params: { url: youtubeUrl } });
         return response.data;
     } catch (error) {
-        console.error("Error fetching video info:", error);
-        throw new Error(await parseApiError(error));
+        throw new Error(
+            error?.response?.data?.error ||
+            "Unable to fetch video info from YouTube right now. Please retry or try another link.",
+        );
     }
 };
 
 /**
- * Convert YouTube video to MP3 and download
- * @param {string} youtubeUrl - YouTube video URL
- * @param {string} quality - Audio quality (128, 192, 256, 320)
+ * Request MP3 stream from backend and return it as Blob.
+ * @param {string} youtubeUrl
+ * @param {string} quality
+ * @param {{title?: string, thumbnail?: string, durationText?: string}} metadata
  * @returns {Promise<Blob>}
  */
 export const downloadMp3 = async (youtubeUrl, quality = "320", metadata = {}) => {
@@ -61,53 +32,52 @@ export const downloadMp3 = async (youtubeUrl, quality = "320", metadata = {}) =>
         const response = await api.get("/download", {
             params: {
                 url: youtubeUrl,
-                quality: quality,
-                title: metadata?.title,
-                thumbnail: metadata?.thumbnail,
-                duration: metadata?.durationText || metadata?.duration,
+                quality,
+                title: metadata?.title || "",
+                thumbnail: metadata?.thumbnail || "",
+                duration: metadata?.durationText || "",
             },
             responseType: "blob",
+            timeout: 240000,
         });
         return response.data;
     } catch (error) {
-        console.error("Error downloading MP3:", error);
-        throw new Error(await parseApiError(error));
+        throw new Error(
+            error?.response?.data?.error ||
+            "Unable to process this YouTube video right now. Please retry or try another link.",
+        );
     }
 };
 
 /**
- * Trigger the download of blob data
- * @param {Blob} blob - File blob
- * @param {string} filename - File name
- */
-export const triggerDownload = (blob, filename) => {
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", filename || "audio.mp3");
-    document.body.appendChild(link);
-    link.click();
-    link.parentNode.removeChild(link);
-    window.URL.revokeObjectURL(url);
-};
-
-/**
- * Get download history
+ * Fetch recent download history.
+ * @param {number} page
+ * @param {number} limit
  * @returns {Promise<Array>}
  */
-export const getDownloadHistory = async () => {
+export const getDownloadHistory = async (page = 1, limit = 20) => {
     try {
         const response = await api.get("/history", {
-            params: {
-                page: 1,
-                limit: 50,
-            },
+            params: { page, limit },
         });
-        return response.data;
-    } catch (error) {
-        console.error("Error fetching download history:", error);
-        throw new Error(await parseApiError(error));
+        return Array.isArray(response.data) ? response.data : [];
+    } catch {
+        return [];
     }
 };
 
-export default api;
+/**
+ * Trigger browser download for Blob data.
+ * @param {Blob} blob
+ * @param {string} filename
+ */
+export const triggerDownload = (blob, filename = "audio.mp3") => {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+};

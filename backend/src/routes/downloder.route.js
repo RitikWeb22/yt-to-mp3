@@ -1,15 +1,16 @@
 const { Router } = require('express');
 
 const downloadRouter = Router();
-const { infoController, downloadController, historyController, downloadLimiter } = require('../controllers/downloader.controller');
+const {
+    rapidApiYtMp3Controller,
+    getVideoInfoController,
+    downloadMp3Controller,
+    getDownloadHistoryController,
+} = require('../controllers/downloader.controller');
 
-// info route
-downloadRouter.get('/info', infoController);
-
-// download route
-downloadRouter.get('/download', downloadLimiter, downloadController);
-
-// history route
-downloadRouter.get('/history', historyController);
+downloadRouter.get('/ytmp3', rapidApiYtMp3Controller);
+downloadRouter.get('/info', getVideoInfoController);
+downloadRouter.get('/download', downloadMp3Controller);
+downloadRouter.get('/history', getDownloadHistoryController);
 
 module.exports = downloadRouter;

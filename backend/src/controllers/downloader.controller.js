@@ -1,8 +1,10 @@
 const path = require('path');
+const fs = require('fs');
 const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 const ytDlp = require('yt-dlp-exec');
+const ytdl = require('@distube/ytdl-core');
 const sanitizeFilename = require('sanitize-filename');
 const { Transform } = require('stream');
 const DownloadHistory = require('../models/download.history.model');
@@ -14,6 +16,7 @@ if (ffmpegPath) {
 const COOKIES_FILE_PATH = path.join(process.cwd(), 'cookies.txt');
 const ALLOWED_QUALITIES = new Set(['128', '192', '256', '320']);
 const YOUTUBE_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
+const RAPIDAPI_HOST = process.env.RAPIDAPI_HOST || 'youtube-mp36.p.rapidapi.com';
 
 function extractYouTubeVideoId(rawUrl) {
     try {
@@ -82,11 +85,21 @@ function getYtDlpBaseOptions() {
         preferFreeFormats: true,
     };
 
-    if (process.env.YOUTUBE_COOKIES) {
+    if (process.env.YOUTUBE_COOKIES || fs.existsSync(COOKIES_FILE_PATH)) {
         options.cookies = COOKIES_FILE_PATH;
     }
 
     return options;
+}
+
+function parseFirstHttpLine(output) {
+    if (!output || typeof output !== 'string') return '';
+    const line = output
+        .split('\n')
+        .map((item) => item.trim())
+        .find((item) => item.startsWith('http://') || item.startsWith('https://'));
+
+    return line || '';
 }
 
 async function fetchVideoInfo(url) {
@@ -144,18 +157,125 @@ async function getVideoInfoController(req, res) {
 }
 
 async function getAudioSourceUrl(url) {
-    const output = await ytDlp(url, {
-        ...getYtDlpBaseOptions(),
-        format: 'bestaudio[acodec!=none]/bestaudio/best',
-        getUrl: true,
-        noPlaylist: true,
-    });
+    const attempts = [
+        {
+            format: 'bestaudio[acodec!=none]/bestaudio/best',
+        },
+        {
+            format: 'bestaudio[ext=m4a]/bestaudio[acodec!=none]/bestaudio/best',
+            extractorArgs: 'youtube:player_client=android',
+        },
+        {
+            format: 'bestaudio[ext=webm]/bestaudio[acodec!=none]/bestaudio/best',
+            extractorArgs: 'youtube:player_client=ios',
+        },
+        {
+            format: 'bestaudio/best',
+            extractorArgs: 'youtube:player_client=mweb',
+        },
+    ];
 
-    if (!output || typeof output !== 'string') {
-        throw new Error('No audio stream URL found');
+    let lastError = null;
+    for (const attempt of attempts) {
+        try {
+            const output = await ytDlp(url, {
+                ...getYtDlpBaseOptions(),
+                ...attempt,
+                getUrl: true,
+                noPlaylist: true,
+            });
+
+            const streamUrl = parseFirstHttpLine(output);
+            if (streamUrl) {
+                return streamUrl;
+            }
+        } catch (error) {
+            lastError = error;
+        }
     }
 
-    return output.trim().split('\n')[0];
+    throw lastError || new Error('No audio stream URL found');
+}
+
+async function getSourceAudioStream(url) {
+    try {
+        const sourceUrl = await getAudioSourceUrl(url);
+        const sourceResponse = await axios.get(sourceUrl, {
+            responseType: 'stream',
+            maxRedirects: 5,
+            timeout: 180000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0',
+                'Accept': '*/*',
+            },
+        });
+
+        return sourceResponse.data;
+    } catch {
+        // Fallback for environments where yt-dlp URL extraction is blocked.
+        return ytdl(url, {
+            quality: 'highestaudio',
+            filter: 'audioonly',
+            requestOptions: {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                },
+            },
+            highWaterMark: 1 << 25,
+        });
+    }
+}
+
+async function getRapidApiMp3Link(url) {
+    const videoId = extractYouTubeVideoId(url);
+    const rapidApiKey = process.env.RAPIDAPI_KEY;
+
+    if (!videoId || !rapidApiKey) {
+        return '';
+    }
+
+    const response = await axios.get('https://youtube-mp36.p.rapidapi.com/dl', {
+        params: { id: videoId },
+        headers: {
+            'x-rapidapi-key': rapidApiKey,
+            'x-rapidapi-host': RAPIDAPI_HOST,
+        },
+        timeout: 25000,
+    });
+
+    const link = response?.data?.link;
+    return typeof link === 'string' ? link : '';
+}
+
+async function streamFileToResponse({ fileUrl, res, safeTitle, historyRecord }) {
+    const sourceResponse = await axios.get(fileUrl, {
+        responseType: 'stream',
+        maxRedirects: 5,
+        timeout: 180000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept': '*/*',
+        },
+    });
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
+
+    let bytesSent = 0;
+    const byteCounter = new Transform({
+        transform(chunk, _encoding, callback) {
+            bytesSent += chunk.length;
+            callback(null, chunk);
+        },
+    });
+
+    sourceResponse.data
+        .on('end', async () => {
+            await updateHistorySize(historyRecord?._id, bytesSent);
+        })
+        .pipe(byteCounter)
+        .pipe(res);
 }
 
 async function saveHistoryRecord(record) {
@@ -210,15 +330,7 @@ async function downloadMp3Controller(req, res) {
     });
 
     try {
-        const sourceUrl = await getAudioSourceUrl(url);
-        const sourceResponse = await axios.get(sourceUrl, {
-            responseType: 'stream',
-            maxRedirects: 5,
-            timeout: 180000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0',
-            },
-        });
+        const sourceAudioStream = await getSourceAudioStream(url);
 
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}.mp3"`);
@@ -231,7 +343,7 @@ async function downloadMp3Controller(req, res) {
             },
         });
 
-        ffmpeg(sourceResponse.data)
+        ffmpeg(sourceAudioStream)
             .audioCodec('libmp3lame')
             .audioBitrate(`${quality}k`)
             .format('mp3')
@@ -251,9 +363,19 @@ async function downloadMp3Controller(req, res) {
             .pipe(byteCounter)
             .pipe(res);
     } catch (error) {
+        try {
+            const rapidApiLink = await getRapidApiMp3Link(url);
+            if (rapidApiLink) {
+                await streamFileToResponse({ fileUrl: rapidApiLink, res, safeTitle, historyRecord });
+                return;
+            }
+        } catch {
+            // RapidAPI fallback failed; return the primary failure below.
+        }
+
         return res.status(502).json({
             error: 'Unable to process this YouTube video right now. Please retry or try another link.',
-            details: error.message,
+            details: error?.stderr || error.message,
         });
     }
 }

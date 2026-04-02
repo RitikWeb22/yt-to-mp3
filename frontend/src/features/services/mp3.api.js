@@ -3,6 +3,21 @@ import axios from "axios";
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api";
 const api = axios.create({ baseURL: apiBaseUrl });
 
+const parseBlobErrorMessage = async (error) => {
+    const maybeBlob = error?.response?.data;
+    if (!maybeBlob || typeof maybeBlob?.text !== "function") {
+        return "";
+    }
+
+    try {
+        const payloadText = await maybeBlob.text();
+        const payload = JSON.parse(payloadText);
+        return payload?.error || payload?.details || "";
+    } catch {
+        return "";
+    }
+};
+
 /**
  * Fetch YouTube metadata from backend.
  * @param {string} youtubeUrl
@@ -42,7 +57,9 @@ export const downloadMp3 = async (youtubeUrl, quality = "320", metadata = {}) =>
         });
         return response.data;
     } catch (error) {
+        const parsedBlobError = await parseBlobErrorMessage(error);
         throw new Error(
+            parsedBlobError ||
             error?.response?.data?.error ||
             "Unable to process this YouTube video right now. Please retry or try another link.",
         );

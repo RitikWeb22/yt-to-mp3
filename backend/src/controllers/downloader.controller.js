@@ -7,6 +7,7 @@ const ytDlp = require('yt-dlp-exec');
 const ytdl = require('@distube/ytdl-core');
 const sanitizeFilename = require('sanitize-filename');
 const { Transform } = require('stream');
+const mongoose = require('mongoose');
 const DownloadHistory = require('../models/download.history.model');
 
 if (ffmpegPath) {
@@ -381,6 +382,10 @@ async function downloadMp3Controller(req, res) {
 }
 
 async function getDownloadHistoryController(req, res) {
+    if (mongoose.connection.readyState !== 1) {
+        return res.json([]);
+    }
+
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
 
